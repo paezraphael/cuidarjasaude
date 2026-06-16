@@ -1,0 +1,52 @@
+@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Inter:wght@400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'Fira Code', monospace;
+  
+  --color-elderly-teal-50: #f0fdfa;
+  --color-elderly-teal-100: #ccfbf1;
+  --color-elderly-teal-500: #14b8a6;
+  --color-elderly-teal-600: #0d9488;
+  --color-elderly-teal-700: #0f766e;
+  --color-elderly-teal-900: #134e4a;
+  
+  --color-elderly-yellow-500: #f59e0b;
+  --color-elderly-yellow-600: #d97706;
+}
+
+@keyframes tremor {
+  0% { transform: translate(0px, 0px) rotate(0deg); }
+  10% { transform: translate(-1.2px, 1.2px) rotate(-0.3deg); }
+  20% { transform: translate(1.4px, -1.4px) rotate(0.3deg); }
+  30% { transform: translate(-1.5px, -0.6px) rotate(0deg); }
+  40% { transform: translate(1.1px, 1.5px) rotate(0.3deg); }
+  50% { transform: translate(-1.4px, 1.1px) rotate(-0.3deg); }
+  60% { transform: translate(1.3px, -1.2px) rotate(0.1deg); }
+  70% { transform: translate(-1.1px, -1.4px) rotate(-0.2deg); }
+  80% { transform: translate(1.5px, 1.5px) rotate(0.2deg); }
+  90% { transform: translate(-1.3px, 1.1px) rotate(0deg); }
+  100% { transform: translate(0px, 0px) rotate(0deg); }
+}
+
+.simulate-tremor {
+  animation: tremor 0.12s infinite ease-in-out;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(241, 245, 249, 0.5);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.5);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.7);
+}
+

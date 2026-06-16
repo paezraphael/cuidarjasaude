@@ -1,0 +1,6 @@
+{
+  "name": "Cuidar Já Saúde",
+  "description": "Painel de Engenharia de Produto, Design System e Simulador Mobile Acessível do Cuidar Já para idosos.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
