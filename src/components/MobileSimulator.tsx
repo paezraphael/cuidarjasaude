@@ -29,6 +29,18 @@ import {
   Info
 } from 'lucide-react';
 
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
+import L from 'leaflet';
+
+// Fix Leaflet icons
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+});
+
 export default function MobileSimulator() {
   // Mobile app navigation state
   const [currentScreen, setCurrentScreen] = useState<'onboarding' | 'home' | 'onde-doi' | 'onibus' | 'atende' | 'voz'>('onboarding');
@@ -40,7 +52,11 @@ export default function MobileSimulator() {
   // App business process states
   const [phoneNumber, setPhoneNumber] = useState('');
   const [isOnboarded, setIsOnboarded] = useState(false);
-  const [selectedUnit, setSelectedUnit] = useState<HealthUnit | null>(SIM_HEALTH_UNITS[0]);
+  
+  // Backend data state
+  const [healthUnits, setHealthUnits] = useState<HealthUnit[]>([]);
+  const [transitLines, setTransitLines] = useState<TransitLine[]>([]);
+  const [selectedUnit, setSelectedUnit] = useState<HealthUnit | null>(null);
   const [routeStep, setRouteStep] = useState<string | null>(null);
   
   // Symptom matches
@@ -57,14 +73,56 @@ export default function MobileSimulator() {
   const [voiceInput, setVoiceInput] = useState<string>('');
   const [voiceReply, setVoiceReply] = useState<string>('Olá! Sou o assistente de voz do Cuidar Já Saúde. Em que posso te ajudar hoje? Pode falar ou clicar em um atalho abaixo.');
 
-  // Handle onboarding click
-  const handleOnboardingSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (phoneNumber.length >= 8) {
-      setIsOnboarded(true);
-      setCurrentScreen('home');
+  const [userLocation, setUserLocation] = useState<[number, number]>([-23.56168, -46.65598]); // Paulista Ave default
+
+  const fetchUnits = (coords: [number, number]) => {
+    fetch(`/api/health-units?lat=${coords[0]}&lng=${coords[1]}`)
+      .then(res => res.json())
+      .then(data => {
+        setHealthUnits(data);
+        if (data.length > 0) setSelectedUnit(data[0]);
+      })
+      .catch(console.error);
+  };
+
+  // Load Data from Backend
+  React.useEffect(() => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition((pos) => {
+        const coords: [number, number] = [pos.coords.latitude, pos.coords.longitude];
+        setUserLocation(coords);
+        fetchUnits(coords);
+      }, () => {
+        fetchUnits(userLocation);
+      });
     } else {
-      alert('Por favor, insira um número válido com DDD (Ex: 11985443322) para receber o código SMS.');
+      fetchUnits(userLocation);
+    }
+
+    fetch('/api/transit-lines')
+      .then(res => res.json())
+      .then(setTransitLines)
+      .catch(console.error);
+  }, []);
+
+  // Handle onboarding click
+  const handleOnboardingSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: phoneNumber })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setIsOnboarded(true);
+        setCurrentScreen('home');
+      } else {
+        alert(data.error || 'Erro ao realizar login.');
+      }
+    } catch (err) {
+      alert('Erro de conexão com o servidor.');
     }
   };
 
@@ -72,32 +130,60 @@ export default function MobileSimulator() {
   const handleSelectSymptom = (symptom: string) => {
     setSymptomMatch(symptom);
     if (symptom === 'Coração / Dor no Peito') {
-      const match = SIM_HEALTH_UNITS.find(u => u.type === 'Hospital SUS') || SIM_HEALTH_UNITS[0];
+      const match = healthUnits.find(u => u.type === 'Hospital SUS') || healthUnits[0];
       setMatchedUnit(match);
       setSelectedUnit(match);
-      setVoiceReply(`🚨 IMPORTANTE: Dor no peito requer atenção emergencial. Recomendo seguir direto para o ${match.name}. É o hospital de pronto atendimento SUS mais próximo de você, com tempo de espera BAIXO. Gostaria que eu te mostrasse a rota acessível por voz?`);
+      setVoiceReply(`🚨 IMPORTANTE: Dor no peito requer atenção emergencial. Recomendo seguir direto para o ${match?.name}. É o hospital de pronto atendimento SUS mais próximo de você, com tempo de espera BAIXO. Gostaria que eu te mostrasse a rota acessível por voz?`);
     } else if (symptom === 'Gripe / Febre / Tosse') {
-      const match = SIM_HEALTH_UNITS.find(u => u.type === 'UBS') || SIM_HEALTH_UNITS[1];
+      const match = healthUnits.find(u => u.type === 'UBS') || healthUnits[1];
       setMatchedUnit(match);
       setSelectedUnit(match);
-      setVoiceReply(`Fique calmo(a). Para gripe ou tosse, a ${match.name} é a unidade ideal para exames leves e vacinação. Fica a apenas 340 metros de você. Calçadas amplas no caminho!`);
+      setVoiceReply(`Fique calmo(a). Para gripe ou tosse, a ${match?.name} é a unidade ideal para exames leves e vacinação. Fica a apenas 340 metros de você. Calçadas amplas no caminho!`);
     } else if (symptom === 'Dor de Cabeça / Tontura') {
-      const match = SIM_HEALTH_UNITS.find(u => u.type === 'UPA') || SIM_HEALTH_UNITS[2];
+      const match = healthUnits.find(u => u.type === 'UPA') || healthUnits[2];
       setMatchedUnit(match);
       setSelectedUnit(match);
-      setVoiceReply(`Para tontura ou dor de cabeça aguda, a ${match.name} possui triagem em tempo real e médicos clínicos disponíveis. Deseja ver a rota?`);
+      setVoiceReply(`Para tontura ou dor de cabeça aguda, a ${match?.name} possui triagem em tempo real e médicos clínicos disponíveis. Deseja ver a rota?`);
     } else {
-      const match = SIM_HEALTH_UNITS.find(u => u.type === 'Farmácia Popular') || SIM_HEALTH_UNITS[3];
+      const match = healthUnits.find(u => u.type === 'Farmácia Popular') || healthUnits[3];
       setMatchedUnit(match);
       setSelectedUnit(match);
-      setVoiceReply(`Se precisa apenas de medicamentos gratuitos da Farmácia Popular, a ${match.name} está bem próxima, a 150 metros. Atenção: há uma escadaria lenta na entrada, se tiver cadeira de rodas, recomendo solicitar a rampa lateral.`);
+      setVoiceReply(`Se precisa apenas de medicamentos gratuitos da Farmácia Popular, a ${match?.name} está bem próxima, a 150 metros. Atenção: há uma escadaria lenta na entrada, se tiver cadeira de rodas, recomendo solicitar a rampa lateral.`);
     }
   };
 
   // ATENDE Reservation handler
-  const handleBookingSubmit = (e: React.FormEvent) => {
+  const handleBookingSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setBookingSuccess(true);
+    try {
+      const res = await fetch('/api/bookings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: bookingDate, destination: bookingDest, purpose: bookingPurpose })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setBookingSuccess(true);
+      }
+    } catch (err) {
+      alert('Erro ao realizar agendamento.');
+    }
+  };
+
+  const sendChatMessage = async (msg: string) => {
+    setVoiceInput(msg);
+    setVoiceReply('Pensando...');
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: msg })
+      });
+      const data = await res.json();
+      setVoiceReply(data.reply);
+    } catch (err) {
+      setVoiceReply('Desculpe, não consegui conectar à internet.');
+    }
   };
 
   // Accent and UI dynamic classes defined by High Contrast state
@@ -293,57 +379,28 @@ export default function MobileSimulator() {
                   <ChevronRight size={16} />
                 </div>
 
-                {/* SIMULATED MAP PANEL */}
-                <div className="rounded-xl border-2 border-slate-300 overflow-hidden relative bg-slate-200 h-44 shadow-inner" id="simulated-map-viewport">
-                  {/* Visual simulated elements represent Google Map Layer */}
-                  <div className="absolute inset-0 bg-teal-50 opacity-100 flex flex-center items-center justify-center">
-                    {/* SVG graphic Mock representing map streets */}
-                    <svg className="absolute inset-0 w-full h-full" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M 0,50 L 350,50 M 120,0 L 120,400 M 0,110 L 350,220 M 240,0 L 240,400" stroke="#cbd5e1" strokeWidth="4" fill="none" />
-                      <circle cx="120" cy="110" r="28" fill="#e2e8f0" stroke="#94a3b8" strokeWidth="1" />
-                    </svg>
-                  </div>
-
-                  {/* You are here marker */}
-                  <div className="absolute top-[80px] left-[100px] z-10 flex flex-col items-center">
-                    <span className="p-1 px-1.5 bg-blue-600 text-white rounded-lg text-[9px] font-bold shadow-md">Você está aqui</span>
-                    <div className="w-3.5 h-3.5 bg-blue-500 border-2 border-white rounded-full animate-ping absolute top-4"></div>
-                    <div className="w-3 h-3 bg-blue-600 border-2 border-white rounded-full"></div>
-                  </div>
-
-                  {/* Render simulated Health Units Pins on Map */}
-                  {SIM_HEALTH_UNITS.map((unit, index) => {
-                    const positions = [
-                      { top: '35px', left: '190px' }, // Hospital
-                      { top: '90px', left: '60px' },  // UBS
-                      { top: '15px', left: '20px' },  // UPA
-                      { top: '120px', left: '260px' }, // Farmácia
-                    ];
-                    const pos = positions[index] || positions[0];
-                    const isSelected = selectedUnit?.id === unit.id;
-
-                    return (
-                      <div 
-                        key={unit.id}
-                        style={{ top: pos.top, left: pos.left }}
-                        onClick={() => setSelectedUnit(unit)}
-                        className={`absolute z-10 cursor-pointer p-1 rounded-md shadow-md transition-all flex items-center justify-center ${
-                          isSelected 
-                            ? 'bg-rose-600 text-white scale-110 border-2 border-white z-20' 
-                            : 'bg-white text-rose-600 border border-slate-300 hover:scale-105'
-                        }`}
-                        id={`map-pin-${unit.id}`}
+                {/* REAL MAP PANEL */}
+                <div className="rounded-xl border-2 border-slate-300 overflow-hidden relative h-44 shadow-inner" id="simulated-map-viewport">
+                  <MapContainer center={userLocation} zoom={14} style={{ height: '100%', width: '100%', zIndex: 0 }}>
+                    <TileLayer 
+                      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" 
+                    />
+                    <Marker position={userLocation}>
+                      <Popup>Você está aqui</Popup>
+                    </Marker>
+                    {healthUnits.map((unit) => (
+                      <Marker 
+                        key={unit.id} 
+                        position={[unit.lat, unit.lng]}
+                        eventHandlers={{ click: () => setSelectedUnit(unit) }}
                       >
-                        <MapPin size={12} />
-                      </div>
-                    );
-                  })}
-
-                  {/* Map Layer Zoom HUD */}
-                  <div className="absolute bottom-2 right-2 flex flex-col gap-1 z-10">
-                    <button className="w-7 h-7 bg-white/95 text-slate-800 rounded font-bold text-center flex items-center justify-center border border-slate-300 text-xs shadow-xs" onClick={() => alert('Simulação de Zoom de Mapas')}>+</button>
-                    <button className="w-7 h-7 bg-white/95 text-slate-800 rounded font-bold text-center flex items-center justify-center border border-slate-300 text-xs shadow-xs" onClick={() => alert('Simulação de Zoom de Mapas')}>-</button>
-                  </div>
+                        <Popup>
+                          <strong>{unit.name}</strong><br />{unit.type}
+                        </Popup>
+                      </Marker>
+                    ))}
+                  </MapContainer>
                 </div>
 
                 {/* SELECTED UNIT MINI DETAIL */}
@@ -415,9 +472,9 @@ export default function MobileSimulator() {
 
                 {/* BOTTOM MENU TABS SIMULATION */}
                 <div className="pt-2">
-                  <span className="text-[10px] font-bold text-slate-400 block uppercase font-mono mb-2">Demais unidades por perto ({SIM_HEALTH_UNITS.length})</span>
+                  <span className="text-[10px] font-bold text-slate-400 block uppercase font-mono mb-2">Demais unidades por perto ({healthUnits.length})</span>
                   <div className="space-y-1.5 max-h-[160px] overflow-y-auto">
-                    {SIM_HEALTH_UNITS.map(unit => (
+                    {healthUnits.map(unit => (
                       <div 
                         key={unit.id}
                         onClick={() => setSelectedUnit(unit)}
@@ -531,7 +588,7 @@ export default function MobileSimulator() {
                 </div>
 
                 <div className="space-y-3">
-                  {SIM_TRANSIT_LINES.map((line) => (
+                  {transitLines.map((line) => (
                     <div key={line.id} className={`p-3.5 rounded-xl border flex flex-col justify-between ${cardTheme}`}>
                       <div className="flex justify-between items-start gap-1">
                         <div>

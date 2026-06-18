@@ -9,6 +9,7 @@ import BacklogView from './components/BacklogView';
 import DesignSystemView from './components/DesignSystemView';
 import RoadmapView from './components/RoadmapView';
 import MobileSimulator from './components/MobileSimulator';
+import WebView from './components/WebView';
 import { 
   Server, 
   Layers, 
@@ -24,12 +25,13 @@ import {
   CheckCircle2,
   Phone,
   Cpu,
-  Github
+  Github,
+  Monitor
 } from 'lucide-react';
 
 export default function App() {
-  // Master App Modes: 'engineering' vs 'mobile-full'
-  const [appMode, setAppMode] = useState<'engineering' | 'mobile-full'>('engineering');
+  // Master App Modes: 'engineering' vs 'mobile-full' vs 'web-full'
+  const [appMode, setAppMode] = useState<'engineering' | 'mobile-full' | 'web-full'>('engineering');
   
   // Tabs inside engineering panel: 'backlog' | 'architecture' | 'design-system' | 'roadmap'
   const [engineeringTab, setEngineeringTab] = useState<'backlog' | 'architecture' | 'design-system' | 'roadmap'>('backlog');
@@ -80,6 +82,18 @@ export default function App() {
           >
             <Smartphone size={14} />
             Simulador Mobile do Idoso
+          </button>
+          <button
+            onClick={() => setAppMode('web-full')}
+            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+              appMode === 'web-full'
+                ? 'bg-emerald-600 text-white shadow-md'
+                : 'text-slate-400 hover:text-white'
+            }`}
+            id="btn-appmode-web"
+          >
+            <Monitor size={14} />
+            Plataforma Web (Desktop)
           </button>
         </div>
       </header>
@@ -209,6 +223,13 @@ export default function App() {
             <div className="bg-slate-950 p-6 rounded-3xl border border-slate-800">
               <MobileSimulator />
             </div>
+          </div>
+        )}
+
+        {/* VIEW 3: DESKTOP WEB INTERFACE */}
+        {appMode === 'web-full' && (
+          <div className="space-y-6 animate-in fade-in duration-200">
+            <WebView />
           </div>
         )}
 
