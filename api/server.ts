@@ -60,13 +60,32 @@ app.get('/api/health-units', async (req, res) => {
 
 let sptransCookies = '';
 
+async function fetchWithTimeout(resource: string, options: RequestInit & { timeout?: number } = {}) {
+  const { timeout = 5000 } = options;
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeout);
+  
+  try {
+    const response = await fetch(resource, {
+      ...options,
+      signal: controller.signal  
+    });
+    clearTimeout(id);
+    return response;
+  } catch (error) {
+    clearTimeout(id);
+    throw error;
+  }
+}
+
 async function authenticateSPTrans() {
   const token = process.env.SPTRANS_TOKEN;
   if (!token) return false;
   try {
-    const res = await fetch(`https://api.olhovivo.sptrans.com.br/v2.1/Login/Autenticar?token=${token}`, { 
+    const res = await fetchWithTimeout(`https://api.olhovivo.sptrans.com.br/v2.1/Login/Autenticar?token=${token}`, { 
       method: 'POST', 
-      headers: { 'Content-Length': '0' } 
+      headers: { 'Content-Length': '0' },
+      timeout: 5000
     });
     const text = await res.text();
     if (text === 'true') {
@@ -91,8 +110,9 @@ app.get('/api/transit-lines', async (req, res) => {
   if (sptransCookies) {
     try {
       const termo = search ? search.toString() : '8000'; // default line search
-      const linesRes = await fetch(`https://api.olhovivo.sptrans.com.br/v2.1/Linha/Buscar?termos=${termo}`, {
-        headers: { 'Cookie': sptransCookies }
+      const linesRes = await fetchWithTimeout(`https://api.olhovivo.sptrans.com.br/v2.1/Linha/Buscar?termos=${termo}`, {
+        headers: { 'Cookie': sptransCookies },
+        timeout: 5000
       });
       const linesData = await linesRes.json();
       
