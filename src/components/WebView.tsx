@@ -44,7 +44,7 @@ L.Icon.Default.mergeOptions({
 
 export default function WebView() {
   // Navigation state
-  const [currentScreen, setCurrentScreen] = useState<'onboarding' | 'home' | 'onde-doi' | 'onibus' | 'atende' | 'voz'>('onboarding');
+  const [currentScreen, setCurrentScreen] = useState<'onboarding' | 'home' | 'onde-doi' | 'onibus' | 'atende' | 'voz' | 'admin'>('onboarding');
   
   // Accessibility state
   const [highContrast, setHighContrast] = useState(false);
@@ -57,6 +57,7 @@ export default function WebView() {
   // Backend data state
   const [healthUnits, setHealthUnits] = useState<HealthUnit[]>([]);
   const [transitLines, setTransitLines] = useState<TransitLine[]>([]);
+  const [bookings, setBookings] = useState<any[]>([]);
   const [selectedUnit, setSelectedUnit] = useState<HealthUnit | null>(null);
   const [routeStep, setRouteStep] = useState<string | null>(null);
   
@@ -104,7 +105,28 @@ export default function WebView() {
       .then(res => res.json())
       .then(setTransitLines)
       .catch(console.error);
+
+    fetch('/api/bookings')
+      .then(res => res.json())
+      .then(setBookings)
+      .catch(console.error);
   }, []);
+
+  const handleApproveBooking = async (id: string) => {
+    try {
+      const res = await fetch(`/api/bookings/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'approved', driver: 'Motorista Alocado' })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setBookings(prev => prev.map(b => b.id === id ? data.booking : b));
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   const handleOnboardingSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -247,6 +269,13 @@ export default function WebView() {
               className={`flex items-center gap-3 p-3 rounded-xl font-bold transition-all ${currentScreen === 'atende' ? btnPrimary : 'hover:bg-slate-100 text-slate-700'}`}
             >
               <Calendar size={20} /> Solicitar Van ATENDE
+            </button>
+            <div className="my-2 border-t border-slate-200"></div>
+            <button
+              onClick={() => setCurrentScreen('admin')}
+              className={`flex items-center gap-3 p-3 rounded-xl font-bold transition-all ${currentScreen === 'admin' ? btnPrimary : 'hover:bg-slate-100 text-slate-700'}`}
+            >
+              <Monitor size={20} /> Painel Admin (Frotas)
             </button>
             <button
               onClick={() => setCurrentScreen('voz')}
@@ -535,6 +564,46 @@ export default function WebView() {
                   </button>
                 </form>
               )}
+            </div>
+          )}
+
+          {/* ADMIN PAINEL FROTAS */}
+          {currentScreen === 'admin' && (
+            <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in">
+              <h2 className="text-2xl font-extrabold flex items-center gap-3">
+                <Monitor className="text-blue-600" size={32} /> Central Administrativa de Frotas
+              </h2>
+              
+              <div className="grid gap-4">
+                {bookings.length === 0 ? (
+                  <p className="text-slate-500 font-bold">Nenhum agendamento pendente.</p>
+                ) : (
+                  bookings.map((booking) => (
+                    <div key={booking.id} className={`p-6 rounded-2xl border flex items-center justify-between ${cardTheme}`}>
+                      <div>
+                        <h4 className="text-lg font-extrabold">Data: {booking.date}</h4>
+                        <p className="text-sm font-bold opacity-80">Destino: {booking.destination}</p>
+                        <p className="text-sm font-bold opacity-80">Finalidade: {booking.purpose}</p>
+                        <div className="mt-2">
+                          {booking.status === 'pending' ? (
+                            <span className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded font-bold text-xs uppercase">Pendente</span>
+                          ) : (
+                            <span className="bg-emerald-100 text-emerald-800 px-2 py-1 rounded font-bold text-xs uppercase">Aprovado: {booking.driver}</span>
+                          )}
+                        </div>
+                      </div>
+                      {booking.status === 'pending' && (
+                        <button 
+                          onClick={() => handleApproveBooking(booking.id)}
+                          className="bg-emerald-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-emerald-700 transition"
+                        >
+                          Aprovar Agendamento
+                        </button>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           )}
 

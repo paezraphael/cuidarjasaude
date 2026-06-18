@@ -152,6 +152,23 @@ app.post('/api/bookings', (req, res) => {
   res.json({ success: true, booking });
 });
 
+app.get('/api/bookings', (req, res) => {
+  res.json(bookings);
+});
+
+app.patch('/api/bookings/:id', (req, res) => {
+  const { id } = req.params;
+  const { status, driver } = req.body;
+  const booking = bookings.find(b => b.id === id);
+  if (booking) {
+    if (status) booking.status = status;
+    if (driver) booking.driver = driver;
+    res.json({ success: true, booking });
+  } else {
+    res.status(404).json({ error: 'Not found' });
+  }
+});
+
 // 5. Intelligent Voice Assistant (AI Integration)
 app.post('/api/chat', async (req, res) => {
   const { message } = req.body;
