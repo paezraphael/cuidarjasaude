@@ -114,12 +114,15 @@ export default function WebView() {
       .catch(console.error);
   };
 
-  // Carrega as unidades sempre que o location do Engine mudar
+  // Carrega as unidades sempre que o location do Engine mudar, MAS SOMENTE se não for IP genérico
   React.useEffect(() => {
-    if (location) {
+    if (location && location.source !== 'ip_fallback') {
       fetchUnits([location.latitude, location.longitude], location);
+    } else {
+      // Limpar unidades se voltou pro IP
+      setHealthUnits([]);
     }
-  }, [location?.latitude, location?.longitude]);
+  }, [location?.latitude, location?.longitude, location?.source]);
 
   // Carrega as linhas de transporte
   React.useEffect(() => {
@@ -428,8 +431,14 @@ export default function WebView() {
 
               <div className="flex flex-col gap-4">
                 <h3 className="font-bold text-xl uppercase tracking-wide">Unidades Próximas</h3>
-                <div className="space-y-3 overflow-y-auto pr-2 pb-4">
-                  {healthUnits.map(unit => (
+                {healthUnits.length === 0 && (!location || location.source === 'ip_fallback') ? (
+                  <div className={`p-6 text-center rounded-2xl border-2 border-dashed ${cardTheme}`}>
+                    <MapPin className="mx-auto mb-2 opacity-50" size={32} />
+                    <p className="font-bold opacity-70">Aguardando localização exata (GPS ou Busca por Endereço) para listar as unidades da sua cidade...</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3 overflow-y-auto pr-2 pb-4">
+                    {healthUnits.map(unit => (
                     <div 
                       key={unit.id}
                       onClick={() => setSelectedUnit(unit)}
@@ -463,6 +472,7 @@ export default function WebView() {
                     </div>
                   ))}
                 </div>
+                )}
               </div>
             </div>
           )}
