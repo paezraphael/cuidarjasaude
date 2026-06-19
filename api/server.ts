@@ -10,6 +10,7 @@ import { LocationData, LocationSource } from './src/models/Location.js';
 import { ConfidenceEngine } from './src/engines/ConfidenceEngine.js';
 import { NearbySearchService, DatabaseHealthUnit } from './src/services/NearbySearchService.js';
 import { H3Service } from './src/services/H3Service.js';
+import { TransitRouter } from './src/providers/transit/TransitRouter.js';
 
 dotenv.config();
 
@@ -138,79 +139,24 @@ app.get('/api/health-units', async (req, res) => {
   res.json(SIM_HEALTH_UNITS);
 });
 
-let sptransCookies = '';
-
-async function fetchWithTimeout(resource: string, options: RequestInit & { timeout?: number } = {}) {
-  const { timeout = 5000 } = options;
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), timeout);
-  
-  try {
-    const response = await fetch(resource, {
-      ...options,
-      signal: controller.signal  
-    });
-    clearTimeout(id);
-    return response;
-  } catch (error) {
-    clearTimeout(id);
-    throw error;
-  }
-}
-
-async function authenticateSPTrans() {
-  const token = process.env.SPTRANS_TOKEN;
-  if (!token) return false;
-  try {
-    const res = await fetchWithTimeout(`https://api.olhovivo.sptrans.com.br/v2.1/Login/Autenticar?token=${token}`, { 
-      method: 'POST', 
-      headers: { 'Content-Length': '0' },
-      timeout: 5000
-    });
-    const text = await res.text();
-    if (text === 'true') {
-      const cookie = res.headers.get('set-cookie');
-      if (cookie) sptransCookies = cookie;
-      return true;
-    }
-  } catch(e) {
-    console.error('SPTrans Auth Error', e);
-  }
-  return false;
-}
-
 // 3. Transit / Fleet Information
 app.get('/api/transit-lines', async (req, res) => {
-  const { search } = req.query; 
+  const { search, lat, lng } = req.query; 
   
-  if (!sptransCookies) {
-    await authenticateSPTrans();
-  }
-  
-  if (sptransCookies) {
-    try {
-      const termo = search ? search.toString() : '8000'; // default line search
-      const linesRes = await fetchWithTimeout(`https://api.olhovivo.sptrans.com.br/v2.1/Linha/Buscar?termos=${termo}`, {
-        headers: { 'Cookie': sptransCookies },
-        timeout: 5000
-      });
-      const linesData = await linesRes.json();
-      
-      if (Array.isArray(linesData) && linesData.length > 0) {
-        const mappedLines = linesData.slice(0, 5).map((l: any) => ({
-          id: l.cl.toString(),
-          code: `${l.lt}-${l.tl}`,
-          name: `${l.tp1} - ${l.tp2}`,
-          etaMinutes: Math.floor(Math.random() * 15) + 2, // Would use /Previsao for exact ETA
-          accessibleRamp: true, 
-          wheelchairSpaces: 1,
-          sensoryGuided: false
-        }));
-        return res.json(mappedLines);
-      }
-    } catch (e) {
-      console.error('SPTrans fetch error', e);
+  try {
+    const latitude = lat ? parseFloat(lat.toString()) : -23.5505;
+    const longitude = lng ? parseFloat(lng.toString()) : -46.6333;
+    
+    const provider = TransitRouter.getTransitProvider(latitude, longitude);
+    const termo = search ? search.toString() : '8000';
+    
+    const lines = await provider.getLines(latitude, longitude, termo);
+    
+    if (lines && lines.length > 0) {
+      return res.json(lines);
     }
+  } catch (e) {
+    console.error('Transit API error', e);
   }
 
   // Fallback se API falhar ou não encontrar

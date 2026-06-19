@@ -133,13 +133,15 @@ export default function WebView() {
     }
   }, [location?.latitude, location?.longitude, location?.source]);
 
-  // Carrega as linhas de transporte
+  // Carrega as linhas de transporte dinamicamente por região
   React.useEffect(() => {
-    fetch('/api/transit-lines')
-      .then(res => res.json())
-      .then(setTransitLines)
-      .catch(console.error);
-  }, []);
+    if (location) {
+      fetch(`/api/transit-lines?lat=${location.latitude}&lng=${location.longitude}`)
+        .then(res => res.json())
+        .then(setTransitLines)
+        .catch(console.error);
+    }
+  }, [location?.latitude, location?.longitude]);
 
   const [addressSearch, setAddressSearch] = useState('');
   const [selectedAddress, setSelectedAddress] = useState('');
@@ -601,7 +603,7 @@ export default function WebView() {
           {currentScreen === 'onibus' && (
             <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in">
               <h2 className="text-2xl font-extrabold flex items-center gap-3">
-                <Bus className="text-purple-600" size={32} /> Acompanhamento de Frota Acessível (SPTrans)
+                <Bus className="text-purple-600" size={32} /> Acompanhamento de Frota Acessível ({transitLines.length > 0 && transitLines[0].provider ? transitLines[0].provider : 'Público'})
               </h2>
               
               <div className="grid gap-4">
