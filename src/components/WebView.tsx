@@ -30,9 +30,10 @@ import {
   Monitor
 } from 'lucide-react';
 
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polygon } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
+import { latLngToCell, cellToBoundary } from 'h3-js';
 
 // Fix Leaflet icons
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -74,7 +75,11 @@ export default function WebView() {
   const [voiceInput, setVoiceInput] = useState<string>('');
   const [voiceReply, setVoiceReply] = useState<string>('Olá! Sou o assistente virtual do Cuidar Já Saúde. Em que posso te ajudar hoje?');
 
-  const [userLocation, setUserLocation] = useState<[number, number]>([-23.56168, -46.65598]); // Paulista Ave default
+  const [userLocation, setUserLocation] = useState<[number, number]>([-22.3145, -49.0587]); // Bauru default
+
+  // H3 Hexagon Boundary
+  const h3Index = latLngToCell(userLocation[0], userLocation[1], 8); // Resolution 8
+  const hexBoundary = cellToBoundary(h3Index, true).map(coords => [coords[1], coords[0]] as [number, number]); // h3-js returns [lng, lat], Leaflet wants [lat, lng]
 
   const fetchUnits = (coords: [number, number]) => {
     fetch(`/api/health-units?lat=${coords[0]}&lng=${coords[1]}`)
@@ -304,6 +309,10 @@ export default function WebView() {
                     <Marker position={userLocation}>
                       <Popup>Seu Local Atual</Popup>
                     </Marker>
+                    <Polygon 
+                      positions={hexBoundary} 
+                      pathOptions={{ color: 'emerald', fillColor: 'emerald', fillOpacity: 0.2, weight: 2 }} 
+                    />
                     {healthUnits.map((unit) => (
                       <Marker 
                         key={unit.id} 
