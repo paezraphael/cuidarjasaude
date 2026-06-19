@@ -35,18 +35,30 @@ app.get('/api/health-units', async (req, res) => {
       const data = await response.json();
       
       if (data && data.elements && data.elements.length > 0) {
-        const units = data.elements.map((el: any) => ({
-          id: el.id.toString(),
-          name: el.tags.name || 'Unidade de Atendimento',
-          type: el.tags.amenity === 'pharmacy' ? 'Farmácia Popular' : 
-                (el.tags.amenity === 'hospital' ? 'Hospital SUS' : 'UBS/Clínica'),
-          address: el.tags['addr:street'] ? `${el.tags['addr:street']}, ${el.tags['addr:housenumber'] || ''}` : 'Endereço Próximo',
-          distance: 'Calculando...',
-          accessibleEntrance: el.tags.wheelchair === 'yes' || Math.random() > 0.5, // Realistic assumption if not mapped
-          adaptedToilets: el.tags['toilets:wheelchair'] === 'yes' || Math.random() > 0.5,
-          lat: el.lat,
-          lng: el.lon
-        }));
+        const units = data.elements.map((el: any) => {
+          const distKm = (6371 * Math.acos(
+            Math.cos((parseFloat(lat as string) * Math.PI) / 180) * 
+            Math.cos((el.lat * Math.PI) / 180) * 
+            Math.cos(((el.lon - parseFloat(lng as string)) * Math.PI) / 180) + 
+            Math.sin((parseFloat(lat as string) * Math.PI) / 180) * 
+            Math.sin((el.lat * Math.PI) / 180)
+          ));
+          const distMeters = Math.round(distKm * 1000);
+
+          return {
+            id: el.id.toString(),
+            name: el.tags.name || 'Unidade de Atendimento',
+            type: el.tags.amenity === 'pharmacy' ? 'Farmácia Popular' : 
+                  (el.tags.amenity === 'hospital' ? 'Hospital SUS' : 'UBS/Clínica'),
+            address: el.tags['addr:street'] ? `${el.tags['addr:street']}, ${el.tags['addr:housenumber'] || ''}` : 'Endereço Próximo',
+            distance: `${distMeters} metros`,
+            accessibleEntrance: el.tags.wheelchair === 'yes' || Math.random() > 0.5, // Realistic assumption if not mapped
+            adaptedToilets: el.tags['toilets:wheelchair'] === 'yes' || Math.random() > 0.5,
+            lat: el.lat,
+            lng: el.lon
+          };
+        }).sort((a: any, b: any) => parseInt(a.distance) - parseInt(b.distance));
+        
         return res.json(units);
       }
     } catch (error) {
