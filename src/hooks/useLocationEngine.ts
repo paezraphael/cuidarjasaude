@@ -15,10 +15,12 @@ export function useLocationEngine() {
   const [location, setLocation] = useState<LocationState | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isLowAccuracy, setIsLowAccuracy] = useState<boolean>(false);
+  const [isManualMode, setIsManualMode] = useState<boolean>(false);
   const watchIdRef = useRef<number | null>(null);
 
   // 3. Fallback: IP
   const fetchIpLocation = async () => {
+    if (isManualMode) return;
     try {
       const res = await fetch('https://ipapi.co/json/');
       const data = await res.json();
@@ -49,6 +51,9 @@ export function useLocationEngine() {
 
     watchIdRef.current = navigator.geolocation.watchPosition(
       (pos) => {
+        // Ignora updates do GPS se o usuário definiu o endereço manualmente
+        if (isManualMode) return;
+        
         const accuracy = pos.coords.accuracy;
         const payload: LocationState = {
           latitude: pos.coords.latitude,
@@ -69,6 +74,7 @@ export function useLocationEngine() {
         setErrorMsg(null);
       },
       (error) => {
+        if (isManualMode) return;
         console.warn("GPS Permission Denied or Failed", error);
         setErrorMsg("Permissão de localização negada ou falhou.");
         
@@ -102,9 +108,10 @@ export function useLocationEngine() {
         navigator.geolocation.clearWatch(watchIdRef.current);
       }
     };
-  }, []);
+  }, [isManualMode]); // Reinicia ou ajusta base no manual mode
 
   const manualOverride = (lat: number, lng: number) => {
+    setIsManualMode(true);
     setLocation({
       latitude: lat,
       longitude: lng,
@@ -117,6 +124,7 @@ export function useLocationEngine() {
   };
 
   const forceGpsRequest = () => {
+    setIsManualMode(false);
     // Para e recomeça forçando o prompt
     if (watchIdRef.current !== null) {
       navigator.geolocation.clearWatch(watchIdRef.current);
