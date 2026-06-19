@@ -368,7 +368,7 @@ export default function WebView() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
               <div className={`lg:col-span-2 rounded-2xl border-2 flex flex-col relative overflow-hidden ${highContrast ? 'border-yellow-400 bg-black' : 'border-slate-300 bg-slate-200'}`}>
                 {/* Location Search Bar */}
-                <div className="absolute top-4 left-1/2 -translate-x-1/2 w-[90%] max-w-md z-[1000]">
+                <div className="absolute top-4 left-1/2 -translate-x-1/2 w-[90%] max-w-md z-[1010]">
                   <form onSubmit={handleAddressSearch} className="flex bg-white rounded-xl shadow-lg overflow-hidden border border-slate-200">
                     <input 
                       type="text" 
