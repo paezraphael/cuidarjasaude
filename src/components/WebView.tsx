@@ -30,10 +30,11 @@ import {
   Monitor
 } from 'lucide-react';
 
-import { MapContainer, TileLayer, Marker, Popup, Polygon, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polygon, Circle, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { latLngToCell, cellToBoundary } from 'h3-js';
+import { latLngToCell, cellToBoundary, cellArea } from 'h3-js';
+import { useLocationEngine } from '../hooks/useLocationEngine.js';
 
 // Component to dynamically update map center
 function MapUpdater({ center }: { center: [number, number] }) {
@@ -84,14 +85,27 @@ export default function WebView() {
   const [voiceInput, setVoiceInput] = useState<string>('');
   const [voiceReply, setVoiceReply] = useState<string>('Olá! Sou o assistente virtual do Cuidar Já Saúde. Em que posso te ajudar hoje?');
 
-  const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
+  const { location, isLowAccuracy, errorMsg, forceGpsRequest, manualOverride } = useLocationEngine();
 
-  // H3 Hexagon Boundary
-  const h3Index = userLocation ? latLngToCell(userLocation[0], userLocation[1], 8) : null;
+  const userLocation: [number, number] | null = location ? [location.latitude, location.longitude] : null;
+
+  const [h3Resolution, setH3Resolution] = useState<number>(8);
+  const [showGeoInfo, setShowGeoInfo] = useState(true);
+
+  // H3 Hexagon Boundary (Resolution defined by slider)
+  const h3Index = userLocation ? latLngToCell(userLocation[0], userLocation[1], h3Resolution) : null;
   const hexBoundary = h3Index ? cellToBoundary(h3Index, true).map(coords => [coords[1], coords[0]] as [number, number]) : [];
+  const hexArea = h3Index ? cellArea(h3Index, 'km2') : 0;
+  
+  // Larger H3 Hexagon (Resolution 5) for demonstration
+  const h3IndexLarge = userLocation ? latLngToCell(userLocation[0], userLocation[1], 5) : null;
+  const hexBoundaryLarge = h3IndexLarge ? cellToBoundary(h3IndexLarge, true).map(coords => [coords[1], coords[0]] as [number, number]) : [];
 
-  const fetchUnits = (coords: [number, number]) => {
-    fetch(`/api/health-units?lat=${coords[0]}&lng=${coords[1]}`)
+  const fetchUnits = (coords: [number, number], meta?: any) => {
+    const accuracy = meta?.accuracy || location?.accuracy || 50;
+    const source = meta?.source || location?.source || 'gps_browser';
+    
+    fetch(`/api/health-units?lat=${coords[0]}&lng=${coords[1]}&accuracy=${accuracy}&source=${source}`)
       .then(res => res.json())
       .then(data => {
         setHealthUnits(data);
@@ -100,29 +114,39 @@ export default function WebView() {
       .catch(console.error);
   };
 
-  // Load Data from Backend
+  // Carrega as unidades sempre que o location do Engine mudar
   React.useEffect(() => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition((pos) => {
-        const coords: [number, number] = [pos.coords.latitude, pos.coords.longitude];
-        setUserLocation(coords);
-        fetchUnits(coords);
-      }, () => {
-        const fallback: [number, number] = [-23.56168, -46.65598];
-        setUserLocation(fallback);
-        fetchUnits(fallback);
-      }, { enableHighAccuracy: true });
-    } else {
-      const fallback: [number, number] = [-23.56168, -46.65598];
-      setUserLocation(fallback);
-      fetchUnits(fallback);
+    if (location) {
+      fetchUnits([location.latitude, location.longitude], location);
     }
+  }, [location?.latitude, location?.longitude]);
 
+  // Carrega as linhas de transporte
+  React.useEffect(() => {
     fetch('/api/transit-lines')
       .then(res => res.json())
       .then(setTransitLines)
       .catch(console.error);
   }, []);
+
+  const [addressSearch, setAddressSearch] = useState('');
+
+  const handleAddressSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!addressSearch) return;
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(addressSearch)}&format=json`);
+      const data = await res.json();
+      if (data && data.length > 0) {
+        manualOverride(parseFloat(data[0].lat), parseFloat(data[0].lon));
+        setRouteStep(`Localização atualizada para: ${data[0].display_name.split(',')[0]}`);
+      } else {
+        alert('Endereço não encontrado.');
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   const handleOnboardingSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -312,19 +336,62 @@ export default function WebView() {
           {currentScreen === 'home' && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
               <div className={`lg:col-span-2 rounded-2xl border-2 flex flex-col relative overflow-hidden ${highContrast ? 'border-yellow-400 bg-black' : 'border-slate-300 bg-slate-200'}`}>
+                {/* Location Search Bar */}
+                <div className="absolute top-4 left-1/2 -translate-x-1/2 w-[90%] max-w-md z-[1000]">
+                  <form onSubmit={handleAddressSearch} className="flex bg-white rounded-xl shadow-lg overflow-hidden border border-slate-200">
+                    <input 
+                      type="text" 
+                      placeholder="Buscar outro endereço..." 
+                      className="w-full px-4 py-3 outline-none font-bold text-slate-700"
+                      value={addressSearch}
+                      onChange={(e) => setAddressSearch(e.target.value)}
+                    />
+                    <button type="submit" className="bg-emerald-600 text-white px-4 hover:bg-emerald-700 transition">
+                      Buscar
+                    </button>
+                  </form>
+                </div>
+
+                {(isLowAccuracy || location?.source === 'ip_fallback') && (
+                  <div className="absolute top-20 left-1/2 -translate-x-1/2 w-[90%] max-w-md z-[1000]">
+                    <div className="bg-orange-50 p-3 rounded-xl border border-orange-200 flex flex-col items-center text-center shadow-lg">
+                      <p className="text-orange-800 text-xs font-semibold mb-2">
+                        {location?.source === 'ip_fallback' 
+                          ? 'Localização genérica de internet (Muito Imprecisa).'
+                          : `Sinal GPS fraco (Margem de ${Math.round(location?.accuracy || 0)}m).`}
+                      </p>
+                      <button 
+                        onClick={forceGpsRequest}
+                        className="bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold py-2 px-4 rounded-full shadow transition-all flex items-center gap-2 cursor-pointer"
+                      >
+                        <MapPin size={14} /> Ativar/Recarregar GPS Real
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Real Map Layer */}
                 <div className="absolute inset-0 z-0">
                   <MapContainer center={userLocation || [-23.56168, -46.65598]} zoom={14} className="h-full w-full rounded-2xl z-0">
                     {userLocation && <MapUpdater center={userLocation} />}
                     <TileLayer 
-                      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                      attribution='&copy; OpenStreetMap'
                       url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" 
                     />
-                    {userLocation && (
+                    {location && userLocation && (
                       <>
                         <Marker position={userLocation}>
-                          <Popup>Seu Local Atual</Popup>
+                          <Popup>
+                            <strong>Sua Posição</strong><br/>
+                            Origem: {location.source}<br/>
+                            Confiança: {location.confidence}%
+                          </Popup>
                         </Marker>
+                        <Circle 
+                          center={userLocation} 
+                          radius={location.accuracy} 
+                          pathOptions={{ color: location.accuracy > 100 ? 'red' : 'blue', fillColor: location.accuracy > 100 ? 'red' : 'blue', fillOpacity: 0.1, weight: 1, dashArray: '4' }} 
+                        />
                         <Polygon 
                           positions={hexBoundary} 
                           pathOptions={{ color: 'emerald', fillColor: 'emerald', fillOpacity: 0.2, weight: 2 }} 
