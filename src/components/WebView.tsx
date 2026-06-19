@@ -30,10 +30,19 @@ import {
   Monitor
 } from 'lucide-react';
 
-import { MapContainer, TileLayer, Marker, Popup, Polygon } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polygon, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { latLngToCell, cellToBoundary } from 'h3-js';
+
+// Component to dynamically update map center
+function MapUpdater({ center }: { center: [number, number] }) {
+  const map = useMap();
+  React.useEffect(() => {
+    map.flyTo(center, 14, { animate: true });
+  }, [center, map]);
+  return null;
+}
 
 // Fix Leaflet icons
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -75,11 +84,11 @@ export default function WebView() {
   const [voiceInput, setVoiceInput] = useState<string>('');
   const [voiceReply, setVoiceReply] = useState<string>('Olá! Sou o assistente virtual do Cuidar Já Saúde. Em que posso te ajudar hoje?');
 
-  const [userLocation, setUserLocation] = useState<[number, number]>([-22.3145, -49.0587]); // Bauru default
+  const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
 
   // H3 Hexagon Boundary
-  const h3Index = latLngToCell(userLocation[0], userLocation[1], 8); // Resolution 8
-  const hexBoundary = cellToBoundary(h3Index, true).map(coords => [coords[1], coords[0]] as [number, number]); // h3-js returns [lng, lat], Leaflet wants [lat, lng]
+  const h3Index = userLocation ? latLngToCell(userLocation[0], userLocation[1], 8) : null;
+  const hexBoundary = h3Index ? cellToBoundary(h3Index, true).map(coords => [coords[1], coords[0]] as [number, number]) : [];
 
   const fetchUnits = (coords: [number, number]) => {
     fetch(`/api/health-units?lat=${coords[0]}&lng=${coords[1]}`)
@@ -99,10 +108,14 @@ export default function WebView() {
         setUserLocation(coords);
         fetchUnits(coords);
       }, () => {
-        fetchUnits(userLocation);
-      });
+        const fallback: [number, number] = [-23.56168, -46.65598];
+        setUserLocation(fallback);
+        fetchUnits(fallback);
+      }, { enableHighAccuracy: true });
     } else {
-      fetchUnits(userLocation);
+      const fallback: [number, number] = [-23.56168, -46.65598];
+      setUserLocation(fallback);
+      fetchUnits(fallback);
     }
 
     fetch('/api/transit-lines')
@@ -301,18 +314,23 @@ export default function WebView() {
               <div className={`lg:col-span-2 rounded-2xl border-2 flex flex-col relative overflow-hidden ${highContrast ? 'border-yellow-400 bg-black' : 'border-slate-300 bg-slate-200'}`}>
                 {/* Real Map Layer */}
                 <div className="absolute inset-0 z-0">
-                  <MapContainer center={userLocation} zoom={14} style={{ height: '100%', width: '100%' }}>
+                  <MapContainer center={userLocation || [-23.56168, -46.65598]} zoom={14} className="h-full w-full rounded-2xl z-0">
+                    {userLocation && <MapUpdater center={userLocation} />}
                     <TileLayer 
                       attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                       url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" 
                     />
-                    <Marker position={userLocation}>
-                      <Popup>Seu Local Atual</Popup>
-                    </Marker>
-                    <Polygon 
-                      positions={hexBoundary} 
-                      pathOptions={{ color: 'emerald', fillColor: 'emerald', fillOpacity: 0.2, weight: 2 }} 
-                    />
+                    {userLocation && (
+                      <>
+                        <Marker position={userLocation}>
+                          <Popup>Seu Local Atual</Popup>
+                        </Marker>
+                        <Polygon 
+                          positions={hexBoundary} 
+                          pathOptions={{ color: 'emerald', fillColor: 'emerald', fillOpacity: 0.2, weight: 2 }} 
+                        />
+                      </>
+                    )}
                     {healthUnits.map((unit) => (
                       <Marker 
                         key={unit.id} 
