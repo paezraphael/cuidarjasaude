@@ -30,6 +30,8 @@ app.post('/api/auth/login', (req, res) => {
 });
 
 // 2. Health Units Locator (Real data from OpenStreetMap)
+const overpassCache = new Map<string, any>();
+
 app.get('/api/health-units', async (req, res) => {
   const { lat, lng, accuracy, source } = req.query;
   
@@ -45,18 +47,42 @@ app.get('/api/health-units', async (req, res) => {
 
       const bestLocation = ConfidenceEngine.calculateConfidence(locData);
 
-      // Overpass API query for hospitals, clinics and pharmacies within 15km
-      const overpassUrl = `https://overpass-api.de/api/interpreter?data=[out:json];(node["amenity"~"hospital|clinic|pharmacy|doctors"](around:15000,${bestLocation.latitude},${bestLocation.longitude}););out 30;`;
+      // Chave de cache arredondando coordenadas para 2 casas decimais (~1.1km)
+      const cacheKey = `${bestLocation.latitude.toFixed(2)},${bestLocation.longitude.toFixed(2)}`;
       
-      try {
-        const response = await fetch(overpassUrl, { timeout: 8000 } as any);
-        if (response.ok) {
-          const data = await response.json();
-          if (data && data.elements && data.elements.length > 0) {
-            // Mapear Overpass para nosso formato Mock de Banco de Dados com H3 (Simulando uma carga de DB)
-            const mockDatabase: DatabaseHealthUnit[] = data.elements.map((el: any) => ({
-              id: el.id.toString(),
-              name: el.tags.name || 'Unidade de Atendimento',
+      let data;
+      if (overpassCache.has(cacheKey)) {
+        data = overpassCache.get(cacheKey);
+      } else {
+        // Overpass API query for hospitals, clinics and pharmacies within 15km
+        const overpassQuery = `[out:json];(node["amenity"~"hospital|clinic|pharmacy|doctors"](around:15000,${bestLocation.latitude},${bestLocation.longitude}););out 30;`;
+        const overpassUrl = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassQuery)}`;
+        
+        try {
+          const response = await fetch(overpassUrl, { 
+            headers: {
+              'User-Agent': 'CuidarJaSaude/1.0',
+              'Accept': 'application/json'
+            },
+            signal: AbortSignal.timeout(8000)
+          });
+          if (response.ok) {
+            data = await response.json();
+            // Salvar no cache para as próximas consultas
+            if (data && data.elements) {
+              overpassCache.set(cacheKey, data);
+            }
+          }
+        } catch (err) {
+          console.warn("Overpass API request failed/timed out, caindo pro fallback", err);
+        }
+      }
+
+      if (data && data.elements && data.elements.length > 0) {
+        // Mapear Overpass para nosso formato Mock de Banco de Dados com H3 (Simulando uma carga de DB)
+        const mockDatabase: DatabaseHealthUnit[] = data.elements.map((el: any) => ({
+          id: el.id.toString(),
+          name: el.tags.name || 'Unidade de Atendimento',
               type: el.tags.amenity === 'pharmacy' ? 'Farmácia Popular' : 
                     (el.tags.amenity === 'hospital' ? 'Hospital SUS' : 'UBS/Clínica'),
               address: el.tags['addr:street'] ? `${el.tags['addr:street']}, ${el.tags['addr:housenumber'] || ''}` : 'Endereço Próximo',
@@ -84,11 +110,8 @@ app.get('/api/health-units', async (req, res) => {
               
               return res.json(units);
             }
+            }
           }
-        }
-      } catch (err) {
-        console.warn("Overpass API falhou, caindo pro fallback", err);
-      }
 
       // FALLBACK DINÂMICO
       // Se a API Overpass falhar ou não achar nada, vamos usar o SIM_HEALTH_UNITS mas com a distância REAL calculada!
