@@ -29,7 +29,8 @@ import {
   Info
 } from 'lucide-react';
 
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import { useLocationEngine } from '../hooks/useLocationEngine';
+import { MapContainer, TileLayer, Marker, Popup, Circle } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 
@@ -63,6 +64,9 @@ export default function MobileSimulator() {
   const [symptomMatch, setSymptomMatch] = useState<string | null>(null);
   const [matchedUnit, setMatchedUnit] = useState<HealthUnit | null>(null);
 
+  // Specialty Filter
+  const [specialtyFilter, setSpecialtyFilter] = useState<string | null>(null);
+
   // ATENDE Reservation form state
   const [bookingDate, setBookingDate] = useState('2026-06-18');
   const [bookingDest, setBookingDest] = useState('Hospital das Clínicas');
@@ -73,7 +77,8 @@ export default function MobileSimulator() {
   const [voiceInput, setVoiceInput] = useState<string>('');
   const [voiceReply, setVoiceReply] = useState<string>('Olá! Sou o assistente de voz do Cuidar Já Saúde. Em que posso te ajudar hoje? Pode falar ou clicar em um atalho abaixo.');
 
-  const [userLocation, setUserLocation] = useState<[number, number]>([-23.56168, -46.65598]); // Paulista Ave default
+  const { location, isLowAccuracy, errorMsg, forceGpsRequest } = useLocationEngine();
+  const userLocation: [number, number] = location ? [location.latitude, location.longitude] : [-23.56168, -46.65598];
 
   const fetchUnits = (coords: [number, number]) => {
     fetch(`/api/health-units?lat=${coords[0]}&lng=${coords[1]}`)
@@ -87,18 +92,10 @@ export default function MobileSimulator() {
 
   // Load Data from Backend
   React.useEffect(() => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition((pos) => {
-        const coords: [number, number] = [pos.coords.latitude, pos.coords.longitude];
-        setUserLocation(coords);
-        fetchUnits(coords);
-      }, () => {
-        fetchUnits(userLocation);
-      });
-    } else {
-      fetchUnits(userLocation);
-    }
+    fetchUnits(userLocation);
+  }, [userLocation[0], userLocation[1]]);
 
+  React.useEffect(() => {
     fetch('/api/transit-lines')
       .then(res => res.json())
       .then(setTransitLines)
@@ -379,6 +376,17 @@ export default function MobileSimulator() {
                   <ChevronRight size={16} />
                 </div>
 
+                {/* HUD GEO ESPACIAL */}
+                {location && (
+                  <div className="flex justify-between items-center bg-slate-100 p-2 rounded-lg text-[10px] font-mono border border-slate-300">
+                    <span className="font-bold text-emerald-700">FONTE: {location.source.toUpperCase()}</span>
+                    <span className={`font-bold ${location.confidence > 70 ? 'text-green-600' : 'text-orange-500'}`}>
+                      CONFIANÇA: {location.confidence}%
+                    </span>
+                    <span className="font-bold text-slate-500">PRECISÃO: {Math.round(location.accuracy)}m</span>
+                  </div>
+                )}
+
                 {/* REAL MAP PANEL */}
                 <div className="rounded-xl border-2 border-slate-300 overflow-hidden relative h-44 shadow-inner" id="simulated-map-viewport">
                   <MapContainer center={userLocation} zoom={14} style={{ height: '100%', width: '100%', zIndex: 0 }}>
@@ -389,6 +397,13 @@ export default function MobileSimulator() {
                     <Marker position={userLocation}>
                       <Popup>Você está aqui</Popup>
                     </Marker>
+                    {location && (
+                      <Circle 
+                        center={userLocation} 
+                        radius={location.accuracy} 
+                        pathOptions={{ color: 'red', fillColor: 'red', fillOpacity: 0.2 }} 
+                      />
+                    )}
                     {healthUnits.map((unit) => (
                       <Marker 
                         key={unit.id} 
@@ -473,8 +488,32 @@ export default function MobileSimulator() {
                 {/* BOTTOM MENU TABS SIMULATION */}
                 <div className="pt-2">
                   <span className="text-[10px] font-bold text-slate-400 block uppercase font-mono mb-2">Demais unidades por perto ({healthUnits.length})</span>
-                  <div className="space-y-1.5 max-h-[160px] overflow-y-auto">
-                    {healthUnits.map(unit => (
+                  
+                  {/* SPECIALTY FILTERS */}
+                  <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                    {['Todas', 'Urgência', 'Farmácia', 'Clínico Geral'].map(spec => (
+                      <button
+                        key={spec}
+                        onClick={() => setSpecialtyFilter(spec === 'Todas' ? null : spec)}
+                        className={`whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-bold border transition-colors ${
+                          (specialtyFilter === spec) || (spec === 'Todas' && !specialtyFilter)
+                            ? (highContrast ? 'bg-yellow-400 text-black border-white' : 'bg-emerald-600 text-white border-emerald-700')
+                            : (highContrast ? 'bg-black text-white border-yellow-400' : 'bg-white text-slate-600 border-slate-300')
+                        }`}
+                      >
+                        {spec}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="space-y-1.5 max-h-[160px] overflow-y-auto mt-1">
+                    {healthUnits.filter(u => {
+                      if (!specialtyFilter) return true;
+                      if (specialtyFilter === 'Urgência') return u.type.includes('Hospital') || u.type.includes('UPA');
+                      if (specialtyFilter === 'Farmácia') return u.type.includes('Farmácia');
+                      if (specialtyFilter === 'Clínico Geral') return u.type.includes('UBS') || u.type.includes('Clínica');
+                      return true;
+                    }).map(unit => (
                       <div 
                         key={unit.id}
                         onClick={() => setSelectedUnit(unit)}

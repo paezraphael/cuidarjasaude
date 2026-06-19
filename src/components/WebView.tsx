@@ -67,6 +67,7 @@ export default function WebView() {
   
   // Backend data state
   const [healthUnits, setHealthUnits] = useState<HealthUnit[]>([]);
+  const [isFetchingUnits, setIsFetchingUnits] = useState(false);
   const [transitLines, setTransitLines] = useState<TransitLine[]>([]);
   const [selectedUnit, setSelectedUnit] = useState<HealthUnit | null>(null);
   const [routeStep, setRouteStep] = useState<string | null>(null);
@@ -105,13 +106,21 @@ export default function WebView() {
     const accuracy = meta?.accuracy || location?.accuracy || 50;
     const source = meta?.source || location?.source || 'gps_browser';
     
+    // Clear previous units to give visual feedback that new units are loading
+    setHealthUnits([]);
+    setSelectedUnit(null);
+    setIsFetchingUnits(true);
+
     fetch(`/api/health-units?lat=${coords[0]}&lng=${coords[1]}&accuracy=${accuracy}&source=${source}`)
       .then(res => res.json())
       .then(data => {
-        setHealthUnits(data);
-        if (data.length > 0) setSelectedUnit(data[0]);
+        setHealthUnits(data || []);
+        if (data && data.length > 0) setSelectedUnit(data[0]);
       })
-      .catch(console.error);
+      .catch(console.error)
+      .finally(() => {
+        setIsFetchingUnits(false);
+      });
   };
 
   // Carrega as unidades sempre que o location do Engine mudar, MAS SOMENTE se não for IP genérico
@@ -133,11 +142,12 @@ export default function WebView() {
   }, []);
 
   const [addressSearch, setAddressSearch] = useState('');
+  const [selectedAddress, setSelectedAddress] = useState('');
   const [addressSuggestions, setAddressSuggestions] = useState<any[]>([]);
 
   // Debounce for address suggestions
   React.useEffect(() => {
-    if (addressSearch.length < 3) {
+    if (addressSearch.length < 3 || addressSearch === selectedAddress) {
       setAddressSuggestions([]);
       return;
     }
@@ -173,10 +183,11 @@ export default function WebView() {
   };
 
   const handleSelectSuggestion = (suggestion: any) => {
-    setAddressSearch(suggestion.display_name.split(',')[0]); // Use first part of address for clean UI
+    setAddressSearch(suggestion.display_name);
+    setSelectedAddress(suggestion.display_name);
     setAddressSuggestions([]);
     manualOverride(parseFloat(suggestion.lat), parseFloat(suggestion.lon));
-    setRouteStep(`Localização atualizada para: ${suggestion.display_name.split(',')[0]}`);
+    setRouteStep(`Localização atualizada para: ${suggestion.display_name}`);
   };
 
   const handleOnboardingSubmit = async (e: React.FormEvent) => {
@@ -473,10 +484,20 @@ export default function WebView() {
 
               <div className="flex flex-col gap-4">
                 <h3 className="font-bold text-xl uppercase tracking-wide">Unidades Próximas</h3>
-                {healthUnits.length === 0 && (!location || location.source === 'ip_fallback') ? (
+                {isFetchingUnits ? (
+                  <div className={`p-6 text-center rounded-2xl border-2 border-dashed ${cardTheme}`}>
+                    <RefreshCw className="mx-auto mb-2 opacity-50 animate-spin" size={32} />
+                    <p className="font-bold opacity-70">Buscando unidades de saúde no raio de 5km...</p>
+                  </div>
+                ) : healthUnits.length === 0 && (!location || location.source === 'ip_fallback') ? (
                   <div className={`p-6 text-center rounded-2xl border-2 border-dashed ${cardTheme}`}>
                     <MapPin className="mx-auto mb-2 opacity-50" size={32} />
                     <p className="font-bold opacity-70">Aguardando localização exata (GPS ou Busca por Endereço) para listar as unidades da sua cidade...</p>
+                  </div>
+                ) : healthUnits.length === 0 ? (
+                  <div className={`p-6 text-center rounded-2xl border-2 border-dashed ${cardTheme}`}>
+                    <AlertCircle className="mx-auto mb-2 text-red-500 opacity-80" size={32} />
+                    <p className="font-bold opacity-70">Nenhuma unidade de saúde validada encontrada pelo satélite neste raio de 5km.</p>
                   </div>
                 ) : (
                   <div className="space-y-3 overflow-y-auto pr-2 pb-4">

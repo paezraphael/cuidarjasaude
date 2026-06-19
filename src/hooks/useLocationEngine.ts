@@ -21,6 +21,7 @@ export function useLocationEngine() {
   // 3. Fallback: IP
   const fetchIpLocation = async () => {
     if (isManualMode) return;
+    const startTime = performance.now();
     try {
       const res = await fetch('https://ipapi.co/json/');
       const data = await res.json();
@@ -33,11 +34,14 @@ export function useLocationEngine() {
           timestamp: Date.now(),
           confidence: 20
         };
+        const duration = Math.round(performance.now() - startTime);
+        console.log(`[Observability] Fonte: IP | Tempo: ${duration}ms | Status: SUCCESS`);
         setLocation(payload);
         setIsLowAccuracy(true);
       }
     } catch (e) {
-      console.error("IP Fallback failed", e);
+      const duration = Math.round(performance.now() - startTime);
+      console.error(`[Observability] ALERTA: Fonte: IP | Tempo: ${duration}ms | Status: ERROR`, e);
     }
   };
 
@@ -49,6 +53,7 @@ export function useLocationEngine() {
       return;
     }
 
+    const startTime = performance.now();
     watchIdRef.current = navigator.geolocation.watchPosition(
       (pos) => {
         // Ignora updates do GPS se o usuário definiu o endereço manualmente
@@ -63,6 +68,9 @@ export function useLocationEngine() {
           timestamp: pos.timestamp,
           confidence: accuracy < 50 ? 98 : accuracy < 500 ? 70 : 40
         };
+
+        const duration = Math.round(performance.now() - startTime);
+        console.log(`[Observability] Fonte: GPS | Tempo: ${duration}ms | Accuracy: ${Math.round(accuracy)}m | Status: SUCCESS`);
 
         // Salva histórico local
         if (accuracy < 100) {

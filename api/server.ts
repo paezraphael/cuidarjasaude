@@ -34,6 +34,7 @@ const overpassCache = new Map<string, any>();
 
 app.get('/api/health-units', async (req, res) => {
   const { lat, lng, accuracy, source } = req.query;
+  const startTime = performance.now();
   
   if (lat && lng) {
     try {
@@ -53,28 +54,41 @@ app.get('/api/health-units', async (req, res) => {
       let data;
       if (overpassCache.has(cacheKey)) {
         data = overpassCache.get(cacheKey);
+        console.log(`[Observability] Fonte: Cache Overpass | Tempo: ${Math.round(performance.now() - startTime)}ms | Status: SUCCESS`);
       } else {
-        // Overpass API query for hospitals, clinics and pharmacies within 15km
-        const overpassQuery = `[out:json];(node["amenity"~"hospital|clinic|pharmacy|doctors"](around:15000,${bestLocation.latitude},${bestLocation.longitude}););out 30;`;
-        const overpassUrl = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassQuery)}`;
+        // Overpass API query for hospitals, clinics and pharmacies within 5km (faster than 15km)
+        const overpassQuery = `[out:json];(node["amenity"~"hospital|clinic|pharmacy|doctors"](around:5000,${bestLocation.latitude},${bestLocation.longitude}););out 30;`;
+        const mirrors = [
+          `https://overpass-api.de/api/interpreter`,
+          `https://lz4.overpass-api.de/api/interpreter`,
+          `https://overpass.kumi.systems/api/interpreter`
+        ];
         
-        try {
-          const response = await fetch(overpassUrl, { 
-            headers: {
-              'User-Agent': 'CuidarJaSaude/1.0',
-              'Accept': 'application/json'
-            },
-            signal: AbortSignal.timeout(8000)
-          });
-          if (response.ok) {
-            data = await response.json();
-            // Salvar no cache para as próximas consultas
-            if (data && data.elements) {
-              overpassCache.set(cacheKey, data);
+        let success = false;
+        for (const mirror of mirrors) {
+          if (success) break;
+          const overpassUrl = `${mirror}?data=${encodeURIComponent(overpassQuery)}`;
+          try {
+            const overpassStart = performance.now();
+            const response = await fetch(overpassUrl, { 
+              headers: {
+                'User-Agent': 'CuidarJaSaude/1.0',
+                'Accept': 'application/json'
+              },
+              signal: AbortSignal.timeout(10000)
+            });
+            if (response.ok) {
+              data = await response.json();
+              // Salvar no cache para as próximas consultas
+              if (data && data.elements) {
+                overpassCache.set(cacheKey, data);
+              }
+              console.log(`[Observability] Fonte: API Overpass (${mirror}) | Tempo API: ${Math.round(performance.now() - overpassStart)}ms | Status: SUCCESS`);
+              success = true;
             }
+          } catch (err) {
+            console.warn(`[Observability] ALERTA: Overpass API request falhou no mirror ${mirror} | Tempo gasto: ${Math.round(performance.now() - startTime)}ms`, err.message);
           }
-        } catch (err) {
-          console.warn("Overpass API request failed/timed out, caindo pro fallback", err);
         }
       }
 
@@ -108,58 +122,16 @@ app.get('/api/health-units', async (req, res) => {
                 lng: r.longitude
               }));
               
+              console.log(`[Observability] Total Pipeline Localização | Tempo: ${Math.round(performance.now() - startTime)}ms`);
               return res.json(units);
             }
-            }
           }
-
-      // FALLBACK DINÂMICO
-      // Se a API Overpass falhar ou não achar nada, vamos usar o SIM_HEALTH_UNITS mas com a distância REAL calculada!
-      const mockDatabaseFallback: DatabaseHealthUnit[] = SIM_HEALTH_UNITS.map(su => ({
-        id: su.id,
-        name: su.name,
-        type: su.type,
-        address: su.address,
-        latitude: su.lat,
-        longitude: su.lng,
-        h3_res8: H3Service.generateIndexes({ latitude: su.lat, longitude: su.lng } as LocationData).res8
-      }));
-
-      // Cruzamos usando nosso engine (ignorando limite de 10km pra garantir que retorne algo)
-      let nearbyFallback = await NearbySearchService.search(bestLocation, mockDatabaseFallback);
-      if (nearbyFallback.length === 0) {
-        // Se o usuário estiver muito longe de SP (> 10km), o search exclui. Vamos calcular manualmente pra contornar o radar.
-        const R = 6371;
-        nearbyFallback = mockDatabaseFallback.map(unit => {
-          const dLat = (unit.latitude - bestLocation.latitude) * Math.PI / 180;
-          const dLon = (unit.longitude - bestLocation.longitude) * Math.PI / 180;
-          const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                    Math.cos(bestLocation.latitude * Math.PI / 180) * Math.cos(unit.latitude * Math.PI / 180) * 
-                    Math.sin(dLon/2) * Math.sin(dLon/2);
-          const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
-          return { ...unit, distanceMeters: Math.round(R * c * 1000), matchLevel: 'fallback_math' };
-        }).sort((a, b) => a.distanceMeters - b.distanceMeters);
-      }
-
-      const unitsFallback = nearbyFallback.map((r, i) => {
-        const originalUnit = SIM_HEALTH_UNITS.find(su => su.id === r.id) || SIM_HEALTH_UNITS[i];
-        return {
-          id: r.id,
-          name: r.name,
-          type: r.type,
-          address: r.address,
-          distance: r.distanceMeters < 1000 ? `${r.distanceMeters} metros` : `${(r.distanceMeters / 1000).toFixed(1)} km`,
-          accessibleEntrance: originalUnit.accessibleEntrance,
-          adaptedToilets: originalUnit.adaptedToilets,
-          lat: r.latitude,
-          lng: r.longitude
-        };
-      });
-
-      return res.json(unitsFallback);
+      // Se não encontrou nada na API real (ou falhou), retornar vazio (sem dados simulados)
+      console.log(`[Observability] Nenhum dado real encontrado ou falha. Retornando vazio.`);
+      return res.json([]);
     } catch (error) {
-      console.error('API error:', error);
-      return res.json(SIM_HEALTH_UNITS);
+      console.error(`[Observability] ALERTA: Erro fatal no Pipeline de Localização | Tempo: ${Math.round(performance.now() - startTime)}ms`, error);
+      return res.json([]);
     }
   }
   
