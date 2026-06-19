@@ -133,22 +133,50 @@ export default function WebView() {
   }, []);
 
   const [addressSearch, setAddressSearch] = useState('');
+  const [addressSuggestions, setAddressSuggestions] = useState<any[]>([]);
+
+  // Debounce for address suggestions
+  React.useEffect(() => {
+    if (addressSearch.length < 3) {
+      setAddressSuggestions([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(addressSearch)}&format=json&limit=5`);
+        const data = await res.json();
+        setAddressSuggestions(data || []);
+      } catch (e) {
+        console.error(e);
+      }
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [addressSearch]);
 
   const handleAddressSearch = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!addressSearch) return;
-    try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(addressSearch)}&format=json`);
-      const data = await res.json();
-      if (data && data.length > 0) {
-        manualOverride(parseFloat(data[0].lat), parseFloat(data[0].lon));
-        setRouteStep(`Localização atualizada para: ${data[0].display_name.split(',')[0]}`);
-      } else {
-        alert('Endereço não encontrado.');
+    if (addressSuggestions.length > 0) {
+      handleSelectSuggestion(addressSuggestions[0]);
+    } else if (addressSearch) {
+      try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(addressSearch)}&format=json&limit=1`);
+        const data = await res.json();
+        if (data && data.length > 0) {
+          handleSelectSuggestion(data[0]);
+        } else {
+          alert('Endereço não encontrado.');
+        }
+      } catch (e) {
+        console.error(e);
       }
-    } catch (e) {
-      console.error(e);
     }
+  };
+
+  const handleSelectSuggestion = (suggestion: any) => {
+    setAddressSearch(suggestion.display_name.split(',')[0]); // Use first part of address for clean UI
+    setAddressSuggestions([]);
+    manualOverride(parseFloat(suggestion.lat), parseFloat(suggestion.lon));
+    setRouteStep(`Localização atualizada para: ${suggestion.display_name.split(',')[0]}`);
   };
 
   const handleOnboardingSubmit = async (e: React.FormEvent) => {
@@ -353,6 +381,20 @@ export default function WebView() {
                       Buscar
                     </button>
                   </form>
+                  {addressSuggestions.length > 0 && (
+                    <div className="mt-2 bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden max-h-60 overflow-y-auto">
+                      {addressSuggestions.map((suggestion, index) => (
+                        <div 
+                          key={index} 
+                          onClick={() => handleSelectSuggestion(suggestion)}
+                          className="px-4 py-3 hover:bg-emerald-50 cursor-pointer border-b border-slate-100 last:border-0"
+                        >
+                          <p className="text-sm font-bold text-slate-800">{suggestion.display_name.split(',')[0]}</p>
+                          <p className="text-xs text-slate-500 truncate">{suggestion.display_name}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {(isLowAccuracy || location?.source === 'ip_fallback') && (
