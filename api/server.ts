@@ -177,19 +177,21 @@ app.get('/api/transit-lines', async (req, res) => {
     const longitude = lng ? parseFloat(lng.toString()) : -46.6333;
     
     const provider = TransitRouter.getTransitProvider(latitude, longitude);
-    const termo = search ? search.toString() : '8000';
+    const termo = search ? search.toString() : '';
     
     const lines = await provider.getLines(latitude, longitude, termo);
     
     if (lines && lines.length > 0) {
       return res.json(lines);
+    } else {
+      return res.json([]);
     }
   } catch (e) {
     console.error('Transit API error', e);
   }
 
-  // Fallback se API falhar ou não encontrar
-  res.json(SIM_TRANSIT_LINES);
+  // Se falhar
+  res.json([]);
 });
 
 // 4. Booking System (ATENDE)

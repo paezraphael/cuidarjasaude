@@ -498,18 +498,21 @@ export default function WebView() {
               <div className="flex flex-col gap-4">
                 <div className="flex justify-between items-center flex-wrap gap-2">
                   <h3 className="font-bold text-xl uppercase tracking-wide">Unidades Próximas</h3>
-                  <select
-                    className={`p-2 rounded font-bold border-2 outline-none ${cardTheme}`}
-                    value={selectedPlan}
-                    onChange={(e) => setSelectedPlan(e.target.value)}
-                  >
-                    <option value="Todos">Todos os Planos</option>
-                    <option value="SUS">Somente SUS</option>
-                    <option value="Bradesco Saúde">Bradesco Saúde</option>
-                    <option value="Amil">Amil</option>
-                    <option value="SulAmérica">SulAmérica</option>
-                    <option value="Unimed">Unimed</option>
-                  </select>
+                  <div className="flex items-center gap-2">
+                    <label className="font-bold text-slate-600">Filtrar Plano de Saúde:</label>
+                    <select
+                      className={`p-2 rounded font-bold border-2 outline-none cursor-pointer ${cardTheme}`}
+                      value={selectedPlan}
+                      onChange={(e) => setSelectedPlan(e.target.value)}
+                    >
+                      <option value="Todos">Todos os Planos</option>
+                      <option value="SUS">Somente SUS</option>
+                      <option value="Bradesco Saúde">Bradesco Saúde</option>
+                      <option value="Amil">Amil</option>
+                      <option value="SulAmérica">SulAmérica</option>
+                      <option value="Unimed">Unimed</option>
+                    </select>
+                  </div>
                 </div>
                 {isFetchingUnits ? (
                   <div className={`p-6 text-center rounded-2xl border-2 border-dashed ${cardTheme}`}>
