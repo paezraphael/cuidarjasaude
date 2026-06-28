@@ -559,24 +559,18 @@ export default function WebView() {
                             {unit.adaptedToilets && <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-bold border border-blue-200">Banheiro Adaptado</span>}
                           </div>
                           <button
-                            onClick={async () => {
-                              setRouteStep(`Calculando rota acessível para ${unit.name}...`);
-                              try {
-                                if (!userLocation) return;
-                                const res = await fetch(`https://router.project-osrm.org/route/v1/foot/${userLocation[1]},${userLocation[0]};${unit.lng},${unit.lat}?overview=full&geometries=geojson`);
-                                const data = await res.json();
-                                if (data && data.routes && data.routes.length > 0) {
-                                  const coords = data.routes[0].geometry.coordinates.map((c: number[]) => [c[1], c[0]]);
-                                  setRouteCoords(coords);
-                                  setRouteStep(`Navegando para ${unit.name}. Distância do trajeto: ${(data.routes[0].distance / 1000).toFixed(1)} km.`);
-                                }
-                              } catch (e) {
-                                setRouteStep(`Iniciando navegação (bússola) para ${unit.name}.`);
+                            onClick={() => {
+                              if (userLocation) {
+                                const url = `https://www.google.com/maps/dir/?api=1&origin=${userLocation[0]},${userLocation[1]}&destination=${unit.lat},${unit.lng}&travelmode=walking`;
+                                window.open(url, '_blank');
+                              } else {
+                                const url = `https://www.google.com/maps/search/?api=1&query=${unit.lat},${unit.lng}`;
+                                window.open(url, '_blank');
                               }
                             }}
                             className={`w-full mt-2 py-3 rounded-xl font-bold flex items-center justify-center gap-2 ${btnPrimary}`}
                           >
-                            <MapPin size={18} /> Iniciar Navegação
+                            <MapPin size={18} /> Iniciar Navegação no Maps
                           </button>
                         </div>
                       )}
