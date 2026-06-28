@@ -30,7 +30,7 @@ import {
   Monitor
 } from 'lucide-react';
 
-import { MapContainer, TileLayer, Marker, Popup, Polygon, Circle, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polygon, Circle, useMap, Polyline } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { latLngToCell, cellToBoundary, cellArea } from 'h3-js';
@@ -71,6 +71,7 @@ export default function WebView() {
   const [transitLines, setTransitLines] = useState<TransitLine[]>([]);
   const [selectedUnit, setSelectedUnit] = useState<HealthUnit | null>(null);
   const [routeStep, setRouteStep] = useState<string | null>(null);
+  const [routeCoords, setRouteCoords] = useState<[number, number][] | null>(null);
   
   // Health Plans Filter
   const [selectedPlan, setSelectedPlan] = useState<string>('Todos');
@@ -109,9 +110,10 @@ export default function WebView() {
     const accuracy = meta?.accuracy || location?.accuracy || 50;
     const source = meta?.source || location?.source || 'gps_browser';
     
-    // Clear previous units to give visual feedback that new units are loading
     setHealthUnits([]);
     setSelectedUnit(null);
+    setRouteCoords(null);
+    setRouteStep(null);
     setIsFetchingUnits(true);
 
     fetch(`/api/health-units?lat=${coords[0]}&lng=${coords[1]}&accuracy=${accuracy}&source=${source}`)
@@ -470,6 +472,9 @@ export default function WebView() {
                         </Popup>
                       </Marker>
                     ))}
+                    {routeCoords && (
+                      <Polyline positions={routeCoords} pathOptions={{ color: 'red', weight: 5, dashArray: '10, 10' }} />
+                    )}
                   </MapContainer>
                 </div>
 
@@ -480,7 +485,10 @@ export default function WebView() {
                       <Accessibility size={32} />
                       <p className="text-lg">{routeStep}</p>
                     </div>
-                    <button onClick={() => setRouteStep(null)} className="p-2 hover:bg-emerald-200 rounded-full">
+                    <button onClick={() => {
+                      setRouteStep(null);
+                      setRouteCoords(null);
+                    }} className="p-2 hover:bg-emerald-200 rounded-full">
                       <X size={24} />
                     </button>
                   </div>
@@ -551,7 +559,21 @@ export default function WebView() {
                             {unit.adaptedToilets && <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-bold border border-blue-200">Banheiro Adaptado</span>}
                           </div>
                           <button
-                            onClick={() => setRouteStep(`Iniciando navegação para ${unit.name}. Siga as calçadas acessíveis mapeadas.`)}
+                            onClick={async () => {
+                              setRouteStep(`Calculando rota acessível para ${unit.name}...`);
+                              try {
+                                if (!userLocation) return;
+                                const res = await fetch(`https://router.project-osrm.org/route/v1/foot/${userLocation[1]},${userLocation[0]};${unit.lng},${unit.lat}?overview=full&geometries=geojson`);
+                                const data = await res.json();
+                                if (data && data.routes && data.routes.length > 0) {
+                                  const coords = data.routes[0].geometry.coordinates.map((c: number[]) => [c[1], c[0]]);
+                                  setRouteCoords(coords);
+                                  setRouteStep(`Navegando para ${unit.name}. Distância do trajeto: ${(data.routes[0].distance / 1000).toFixed(1)} km.`);
+                                }
+                              } catch (e) {
+                                setRouteStep(`Iniciando navegação (bússola) para ${unit.name}.`);
+                              }
+                            }}
                             className={`w-full mt-2 py-3 rounded-xl font-bold flex items-center justify-center gap-2 ${btnPrimary}`}
                           >
                             <MapPin size={18} /> Iniciar Navegação
