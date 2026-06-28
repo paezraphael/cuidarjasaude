@@ -72,6 +72,9 @@ export default function WebView() {
   const [selectedUnit, setSelectedUnit] = useState<HealthUnit | null>(null);
   const [routeStep, setRouteStep] = useState<string | null>(null);
   
+  // Health Plans Filter
+  const [selectedPlan, setSelectedPlan] = useState<string>('Todos');
+
   // Symptom matches
   const [symptomMatch, setSymptomMatch] = useState<string | null>(null);
   const [matchedUnit, setMatchedUnit] = useState<HealthUnit | null>(null);
@@ -485,7 +488,21 @@ export default function WebView() {
               </div>
 
               <div className="flex flex-col gap-4">
-                <h3 className="font-bold text-xl uppercase tracking-wide">Unidades Próximas</h3>
+                <div className="flex justify-between items-center flex-wrap gap-2">
+                  <h3 className="font-bold text-xl uppercase tracking-wide">Unidades Próximas</h3>
+                  <select
+                    className={`p-2 rounded font-bold border-2 outline-none ${cardTheme}`}
+                    value={selectedPlan}
+                    onChange={(e) => setSelectedPlan(e.target.value)}
+                  >
+                    <option value="Todos">Todos os Planos</option>
+                    <option value="SUS">Somente SUS</option>
+                    <option value="Bradesco Saúde">Bradesco Saúde</option>
+                    <option value="Amil">Amil</option>
+                    <option value="SulAmérica">SulAmérica</option>
+                    <option value="Unimed">Unimed</option>
+                  </select>
+                </div>
                 {isFetchingUnits ? (
                   <div className={`p-6 text-center rounded-2xl border-2 border-dashed ${cardTheme}`}>
                     <RefreshCw className="mx-auto mb-2 opacity-50 animate-spin" size={32} />
@@ -503,7 +520,7 @@ export default function WebView() {
                   </div>
                 ) : (
                   <div className="space-y-3 overflow-y-auto pr-2 pb-4">
-                    {healthUnits.map(unit => (
+                    {healthUnits.filter(u => selectedPlan === 'Todos' || (u.healthPlans && u.healthPlans.some(p => p.toLowerCase().includes(selectedPlan.toLowerCase())))).map(unit => (
                     <div 
                       key={unit.id}
                       onClick={() => setSelectedUnit(unit)}
@@ -515,6 +532,13 @@ export default function WebView() {
                         <div>
                           <h4 className="font-extrabold text-lg">{unit.name}</h4>
                           <span className={`text-sm ${textMuted} font-bold`}>{unit.type}</span>
+                          <div className="flex flex-wrap gap-1 mt-2">
+                            {unit.healthPlans?.map(plan => (
+                              <span key={plan} className="bg-purple-100 text-purple-800 px-2 py-0.5 rounded text-xs font-bold border border-purple-200">
+                                {plan}
+                              </span>
+                            ))}
+                          </div>
                         </div>
                         <span className="text-emerald-600 font-black">{unit.distance}</span>
                       </div>

@@ -74,6 +74,7 @@ export interface HealthUnit {
   lat: number;
   lng: number;
   phone: string;
+  healthPlans?: string[];
 }
 
 // Public Transit Sim Type

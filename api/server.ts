@@ -53,80 +53,109 @@ app.get('/api/health-units', async (req, res) => {
       const cacheKey = `${bestLocation.latitude.toFixed(2)},${bestLocation.longitude.toFixed(2)}`;
       
       let data;
-      if (overpassCache.has(cacheKey)) {
-        data = overpassCache.get(cacheKey);
-        console.log(`[Observability] Fonte: Cache Overpass | Tempo: ${Math.round(performance.now() - startTime)}ms | Status: SUCCESS`);
-      } else {
-        // Overpass API query for hospitals, clinics and pharmacies within 5km (faster than 15km)
-        const overpassQuery = `[out:json];(node["amenity"~"hospital|clinic|pharmacy|doctors"](around:5000,${bestLocation.latitude},${bestLocation.longitude}););out 30;`;
-        const mirrors = [
-          `https://overpass-api.de/api/interpreter`,
-          `https://lz4.overpass-api.de/api/interpreter`,
-          `https://overpass.kumi.systems/api/interpreter`
-        ];
-        
-        let success = false;
-        for (const mirror of mirrors) {
-          if (success) break;
-          const overpassUrl = `${mirror}?data=${encodeURIComponent(overpassQuery)}`;
-          try {
-            const overpassStart = performance.now();
-            const response = await fetch(overpassUrl, { 
-              headers: {
-                'User-Agent': 'CuidarJaSaude/1.0',
-                'Accept': 'application/json'
-              },
-              signal: AbortSignal.timeout(10000)
-            });
-            if (response.ok) {
-              data = await response.json();
-              // Salvar no cache para as próximas consultas
-              if (data && data.elements) {
-                overpassCache.set(cacheKey, data);
-              }
-              console.log(`[Observability] Fonte: API Overpass (${mirror}) | Tempo API: ${Math.round(performance.now() - overpassStart)}ms | Status: SUCCESS`);
-              success = true;
-            }
-          } catch (err) {
-            console.warn(`[Observability] ALERTA: Overpass API request falhou no mirror ${mirror} | Tempo gasto: ${Math.round(performance.now() - startTime)}ms`, err.message);
+      let radius = 5000;
+      const maxRadius = 30000;
+      let success = false;
+      
+      while (radius <= maxRadius && !success) {
+        const currentCacheKey = `${cacheKey}_${radius}`;
+        if (overpassCache.has(currentCacheKey)) {
+          data = overpassCache.get(currentCacheKey);
+          console.log(`[Observability] Fonte: Cache Overpass (Raio ${radius}m) | Tempo: ${Math.round(performance.now() - startTime)}ms | Status: SUCCESS`);
+          if (data && data.elements && data.elements.length > 0) {
+            success = true;
+            break;
           }
+        } else {
+          // Busca em raio dinâmico
+          const overpassQuery = `[out:json];(node["amenity"~"hospital|clinic|pharmacy|doctors"](around:${radius},${bestLocation.latitude},${bestLocation.longitude}););out 30;`;
+          const mirrors = [
+            `https://overpass-api.de/api/interpreter`,
+            `https://lz4.overpass-api.de/api/interpreter`,
+            `https://overpass.kumi.systems/api/interpreter`
+          ];
+          
+          for (const mirror of mirrors) {
+            if (success) break;
+            const overpassUrl = `${mirror}?data=${encodeURIComponent(overpassQuery)}`;
+            try {
+              const overpassStart = performance.now();
+              const response = await fetch(overpassUrl, { 
+                headers: {
+                  'User-Agent': 'CuidarJaSaude/1.0',
+                  'Accept': 'application/json'
+                },
+                signal: AbortSignal.timeout(10000)
+              });
+              if (response.ok) {
+                data = await response.json();
+                if (data && data.elements) {
+                  overpassCache.set(currentCacheKey, data);
+                }
+                console.log(`[Observability] Fonte: API Overpass (${mirror}) Raio: ${radius}m | Tempo API: ${Math.round(performance.now() - overpassStart)}ms | Status: SUCCESS`);
+                if (data && data.elements && data.elements.length > 0) {
+                  success = true;
+                }
+              }
+            } catch (err: any) {
+              console.warn(`[Observability] ALERTA: Overpass API falhou no mirror ${mirror} raio ${radius} | Tempo gasto: ${Math.round(performance.now() - startTime)}ms`, err.message);
+            }
+          }
+        }
+        
+        if (!success) {
+          console.log(`[Observability] Raio ${radius}m não retornou resultados. Aumentando raio...`);
+          radius += 5000;
         }
       }
 
       if (data && data.elements && data.elements.length > 0) {
         // Mapear Overpass para nosso formato Mock de Banco de Dados com H3 (Simulando uma carga de DB)
-        const mockDatabase: DatabaseHealthUnit[] = data.elements.map((el: any) => ({
-          id: el.id.toString(),
-          name: el.tags.name || 'Unidade de Atendimento',
-              type: el.tags.amenity === 'pharmacy' ? 'Farmácia Popular' : 
-                    (el.tags.amenity === 'hospital' ? 'Hospital SUS' : 'UBS/Clínica'),
-              address: el.tags['addr:street'] ? `${el.tags['addr:street']}, ${el.tags['addr:housenumber'] || ''}` : 'Endereço Próximo',
-              latitude: el.lat,
-              longitude: el.lon,
-              h3_res8: H3Service.generateIndexes({ latitude: el.lat, longitude: el.lon } as LocationData).res8
-            }));
-
-            // Passar para o NearbySearchService para cruzamento via H3 e ordenação por Haversine
-            const nearbyResults = await NearbySearchService.search(bestLocation, mockDatabase);
-
-            // Se encontrou no raio de 10km (definido no NearbySearchService)
-            if (nearbyResults.length > 0) {
-              const units = nearbyResults.map(r => ({
-                id: r.id,
-                name: r.name,
-                type: r.type,
-                address: r.address,
-                distance: r.distanceMeters < 1000 ? `${r.distanceMeters} metros` : `${(r.distanceMeters / 1000).toFixed(1)} km`,
-                accessibleEntrance: Math.random() > 0.5,
-                adaptedToilets: Math.random() > 0.5,
-                lat: r.latitude,
-                lng: r.longitude
-              }));
-              
-              console.log(`[Observability] Total Pipeline Localização | Tempo: ${Math.round(performance.now() - startTime)}ms`);
-              return res.json(units);
-            }
+        const mockDatabase: DatabaseHealthUnit[] = data.elements.map((el: any) => {
+          let healthPlans: string[] = [];
+          if (el.tags.health_insurance) {
+            healthPlans = el.tags.health_insurance.split(';').map((s: string) => s.trim());
+          } else if (el.tags['insurance:health']) {
+            healthPlans = el.tags['insurance:health'].split(';').map((s: string) => s.trim());
+          } else if (el.tags.amenity === 'hospital' || el.tags.healthcare === 'hospital') {
+            healthPlans = ['SUS'];
           }
+
+          return {
+            id: el.id.toString(),
+            name: el.tags.name || 'Unidade de Atendimento',
+            type: el.tags.amenity === 'pharmacy' ? 'Farmácia Popular' : 
+                  (el.tags.amenity === 'hospital' ? 'Hospital SUS' : 'UBS/Clínica'),
+            address: el.tags['addr:street'] ? `${el.tags['addr:street']}, ${el.tags['addr:housenumber'] || ''}` : 'Endereço Próximo',
+            latitude: el.lat,
+            longitude: el.lon,
+            h3_res8: H3Service.generateIndexes({ latitude: el.lat, longitude: el.lon } as LocationData).res8,
+            healthPlans
+          };
+        });
+
+        // Passar para o NearbySearchService para cruzamento via H3 e ordenação por Haversine
+        const nearbyResults = await NearbySearchService.search(bestLocation, mockDatabase, radius);
+
+        // Se encontrou no raio dinâmico
+        if (nearbyResults.length > 0) {
+          const units = nearbyResults.map(r => ({
+            id: r.id,
+            name: r.name,
+            type: r.type,
+            address: r.address,
+            distance: r.distanceMeters < 1000 ? `${r.distanceMeters} metros` : `${(r.distanceMeters / 1000).toFixed(1)} km`,
+            accessibleEntrance: Math.random() > 0.5,
+            adaptedToilets: Math.random() > 0.5,
+            lat: r.latitude,
+            lng: r.longitude,
+            healthPlans: r.healthPlans || []
+          }));
+          
+          console.log(`[Observability] Total Pipeline Localização | Tempo: ${Math.round(performance.now() - startTime)}ms`);
+          return res.json(units);
+        }
+      }
       // Se não encontrou nada na API real (ou falhou), retornar vazio (sem dados simulados)
       console.log(`[Observability] Nenhum dado real encontrado ou falha. Retornando vazio.`);
       return res.json([]);
